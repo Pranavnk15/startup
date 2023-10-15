@@ -1,90 +1,76 @@
 const express = require('express');
+const { exec } = require('child_process');
 const path = require('path');
-const axios = require('axios');
-const mqtt = require('mqtt');
+const fs = require('fs');
+const ArduinoIotClient = require('@arduino/arduino-iot-client');
+
+
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-
 app.use(express.json());
 app.set('view engine', 'ejs');  // Set EJS as the view engine
 app.set('views', path.join(__dirname, 'views'));  // Set the views directory
 
-app.use(express.json());
 
-const iotCloudAPIEndpoint = 'YOUR_IOT_CLOUD_API_ENDPOINT'; // Replace with your IoT cloud API endpoint
-const mqttBrokerUrl = 'mqtt://YOUR_MQTT_BROKER_URL'; // Replace with your MQTT broker URL
+// Configure Arduino IoT Client
+const defaultClient = ArduinoIotClient.ApiClient.instance;
+const oauth2 = defaultClient.authentications['oauth2'];
+oauth2.accessToken = "YOUR_ACCESS_TOKEN"; // Replace with your access token
+
+const api = new ArduinoIotClient.PropertiesV2Api();
+
+// Sample zones and corresponding indicators (1 for on, 0 for off)
+const zones = ['zone1', 'zone2', 'zone3', 'zone4'];
 
 
-const fs = require('fs');
+// Function to control lights based on zones and control signals
+function controlLightsForZones(parsedControlSignals) {
+  for (let i = 0; i < zones.length; i++) {
+    const zone = zones[i];
+    const controlSignal = parsedControlSignals[i];  // Use parsedControlSignals instead of controlSignals
 
-function readHighsAndLowsFromFile() {
+    console.log(`Controlling lights for ${zone}: Turning ${controlSignal === 1 ? 'on' : 'off'}`);
+
+    // Publish the control signal to the corresponding zone
+    api.propertiesV2Publish(zone, 'light_control', { value: controlSignal.toString() })  // Convert controlSignal to string
+      .then(() => console.log(`Published control signal ${controlSignal} for ${zone}.`))
+      .catch(error => console.error(`Error publishing control signal for ${zone}:`, error));
+  }
+}
+
+let controlSignals = 'zone_counts.txt';  // Use let instead of const
+
+function readAndUpdateControlSignals() {
   try {
-    const data = fs.readFileSync('myfile.txt', 'utf8');
-    // Assuming the content in the file is like "[1,0,1,0]"
-    const highsAndLows = JSON.parse(data.replace(/ /g, ''));
-    return highsAndLows.join('');
+    const data = fs.readFileSync(controlSignals, 'utf8');
+    const parsedControlSignals = data.trim().split('').map(Number);
+
+    controlLightsForZones(parsedControlSignals);
   } catch (error) {
-    console.error('Error reading highs and lows from file:', error.message);
-    return null;
+    console.error('Error reading and updating control signals:', error.message);
   }
 }
 
+setInterval(readAndUpdateControlSignals, 5000); 
 
-
-function controlLights(highsAndLows) {
-  const client = mqtt.connect(mqttBrokerUrl);
-
-//   client.on('connect', () => {
-//     for (const value of highsAndLows) {
-//       const topic = 'lights/control';
-//       const isHigh = value === '1';
-
-//       // Publish messages to control the lights
-//       client.publish(topic, isHigh ? 'on' : 'off');
-//       console.log(`Turning ${isHigh ? 'on' : 'off'} the lights.`);
-//     }
-
-//     client.end();
-//   });
-
-for (const value of highsAndLows) {
-    const isHigh = value === '1';
-    console.log(`Turning ${isHigh ? 'on' : 'off'} the lights.`);
-  }
-}
-
-app.post('/control-lights-from-file', async (req, res) => {
-    console.log('Received control-lights-from-file request');
-    const highsAndLowsFromFile = readHighsAndLowsFromFile();
-  
-    if (!highsAndLowsFromFile) {
-      res.status(500).send('Error reading highs and lows from file.');
-      return;
-    }
-  
-    // Control the lights based on highs and lows from the file
-    controlLights(highsAndLowsFromFile);
-  
-    // Make an API call to the IoT cloud platform
-    try {
-      const response = await axios.post(iotCloudAPIEndpoint, { highsAndLows: highsAndLowsFromFile });
-  
-      // Handle the response from the IoT cloud platform if needed
-      console.log('API Response:', response.data);
-  
-      res.status(200).send('Lights control request processed.');
-    } catch (error) {
-      console.error('Error making API call:', error.message);
-      res.status(500).send('Error making API call.');
-    }
-  });
-  
+// Route to trigger controlling lights for zones
+app.post('/control-lights', (req, res) => {
+  controlLightsForZones();
+  res.status(200).send('Lights control request processed.');
+});
 
 app.get('/', (req, res) => {
-    res.render('index');  // Renders 'index.ejs' in the 'views' directory
+  res.render('index');  // Renders 'index.ejs' in the 'views' directory
 });
-  
+
+exec('python app.py', (error, stdout, stderr) => {
+    if (error) {
+        console.error(`Error starting Flask server: ${error}`);
+        return;
+    }
+    console.log(`Flask server started: ${stdout}`);
+});
 
 app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);

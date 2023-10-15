@@ -1,30 +1,26 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>Control Lights</title>
+    <title>YOLOv3 Detection</title>
 </head>
 <body>
-  <h1>Control Lights</h1>
-  <button onclick="controlLightsFromFile()">Control Lights from File</button>
+    <div id="detection-results"></div>
 
-  <script>
-    async function controlLightsFromFile() {
-      // Make an API call to the server to control the lights from the file
-      try {
-        const response = await fetch('/control-lights-from-file', {
-          method: 'POST',
-        });
+    <script>
+        async function fetchDetectionResults() {
+            try {
+                const response = await fetch('http://localhost:3000/get_detection_results');
+                const results = await response.json();
 
-        if (response.ok) {
-          alert('Lights control request sent.');
-        } else {
-          alert('Error sending lights control request.');
+                // Display detection results on the HTML page
+                document.getElementById('detection-results').innerText = JSON.stringify(results, null, 2);
+            } catch (error) {
+                console.error('Error fetching detection results:', error);
+            }
         }
-      } catch (error) {
-        console.error('Error:', error);
-        alert('Error communicating with the server.');
-      }
-    }
-  </script>
+
+        // Fetch detection results periodically
+        setInterval(fetchDetectionResults, 2000); // Update every 2 seconds
+    </script>
 </body>
 </html>
